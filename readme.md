@@ -1,8 +1,4 @@
-Berikut adalah dokumen **Product Requirements Document (PRD)** formal dan komprehensif untuk **MAGI Cryptosystem**. 
 
-Dokumen ini disusun menggunakan standar industri rekayasa perangkat lunak (Software Engineering) yang profesional, sangat cocok untuk dilampirkan dalam laporan tugas, repositori GitHub, maupun portofolio Anda.
-
-***
 
 # PRODUCT REQUIREMENTS DOCUMENT (PRD)
 **Nama Produk:** MAGI Cryptosystem (Super Encryption System)
