@@ -7,28 +7,40 @@ export type DecodedImage = {
   rgba: Uint8Array;
 };
 
-const MAGIC = new Uint8Array([0x4d, 0x47, 0x49, 0x31]);
+const MAGIC = new Uint8Array([0x4d, 0x47, 0x49, 0x32]);
 const HEADER_BYTES = 12;
+const MAX_SOURCE_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_WIDTH = 512;
+const MAX_IMAGE_HEIGHT = 512;
+const MAX_IMAGE_PIXELS = MAX_IMAGE_WIDTH * MAX_IMAGE_HEIGHT;
 
 export function decodeImageBase64(base64: string, mimeType: string): DecodedImage {
   const buffer = Buffer.from(base64, "base64");
 
+  if (buffer.length === 0) {
+    throw new Error("Payload gambar kosong.");
+  }
+
+  if (buffer.length > MAX_SOURCE_IMAGE_BYTES) {
+    throw new Error("Ukuran file gambar melebihi batas aman 2 MB.");
+  }
+
   if (mimeType === "image/png") {
     const image = PNG.sync.read(buffer);
-    return {
+    return validateDecodedImage({
       width: image.width,
       height: image.height,
       rgba: new Uint8Array(image.data),
-    };
+    });
   }
 
   if (mimeType === "image/jpeg" || mimeType === "image/jpg") {
     const image = jpeg.decode(buffer, { useTArray: true });
-    return {
+    return validateDecodedImage({
       width: image.width,
       height: image.height,
       rgba: image.data,
-    };
+    });
   }
 
   throw new Error("Format gambar belum didukung. Gunakan PNG atau JPG.");
@@ -70,7 +82,7 @@ export function packEncryptedImage(cipherBytes: Uint8Array, width: number, heigh
 export function unpackEncryptedImage(image: DecodedImage) {
   const bytes = image.rgba;
   if (!matchesMagic(bytes)) {
-    throw new Error("File decrypt harus PNG hasil encrypt MAGI. Header MGI1 tidak ditemukan.");
+    throw new Error("File decrypt harus PNG hasil encrypt MAGI. Header MGI2 tidak ditemukan.");
   }
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -92,4 +104,20 @@ export function unpackEncryptedImage(image: DecodedImage) {
 
 function matchesMagic(bytes: Uint8Array) {
   return MAGIC.every((value, index) => bytes[index] === value);
+}
+
+function validateDecodedImage(image: DecodedImage) {
+  if (image.width <= 0 || image.height <= 0) {
+    throw new Error("Dimensi gambar tidak valid.");
+  }
+
+  if (image.width > MAX_IMAGE_WIDTH || image.height > MAX_IMAGE_HEIGHT) {
+    throw new Error(`Dimensi gambar terlalu besar. Maksimal ${MAX_IMAGE_WIDTH}x${MAX_IMAGE_HEIGHT}px.`);
+  }
+
+  if (image.width * image.height > MAX_IMAGE_PIXELS) {
+    throw new Error("Jumlah piksel gambar melebihi batas aman.");
+  }
+
+  return image;
 }

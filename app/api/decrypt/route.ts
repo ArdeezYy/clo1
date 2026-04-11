@@ -2,14 +2,15 @@ import { NextResponse } from "next/server";
 
 import {
   bytesToUtf8,
-  decodeCipherInput,
   decryptPayload,
   type MagiParams,
-  validateParams,
 } from "@/lib/magi/engine";
 import { decodeImageBase64, encodePngDataUrl, unpackEncryptedImage } from "@/lib/magi/image-codec";
+import { decodeVersionedCiphertext, deriveParamsFromMasterKey, validateMasterKey } from "@/lib/magi/master-key";
 
 export const runtime = "nodejs";
+const MAX_TEXT_BYTES = 128 * 1024;
+const MAX_IMAGE_BASE64_LENGTH = 4 * 1024 * 1024;
 
 export async function POST(request: Request) {
   try {
@@ -21,14 +22,19 @@ export async function POST(request: Request) {
         throw new Error("Ciphertext wajib diisi.");
       }
 
-      const decrypted = decryptPayload(decodeCipherInput(body.text), params);
+      if (body.text.length > MAX_TEXT_BYTES) {
+        throw new Error("Ciphertext terlalu panjang.");
+      }
 
-      return NextResponse.json({
+      const decrypted = decryptPayload(decodeVersionedCiphertext(body.text), params);
+
+      return noStoreJson({
         outputType: "text",
         result: bytesToUtf8(decrypted),
         encoding: "utf8",
         metadata: {
           inputType: "text",
+          version: "MAGI2",
           bytes: decrypted.length,
         },
       });
@@ -37,6 +43,10 @@ export async function POST(request: Request) {
     if (body.inputType === "image") {
       if (!body.image?.data || !body.image?.mimeType) {
         throw new Error("Payload gambar tidak lengkap.");
+      }
+
+      if (typeof body.image.data !== "string" || body.image.data.length > MAX_IMAGE_BASE64_LENGTH) {
+        throw new Error("Payload gambar terlalu besar.");
       }
 
       const decoded = decodeImageBase64(body.image.data, body.image.mimeType);
@@ -48,12 +58,13 @@ export async function POST(request: Request) {
         rgba: decrypted,
       });
 
-      return NextResponse.json({
+      return noStoreJson({
         outputType: "image",
         mimeType: encoded.mimeType,
         dataUrl: encoded.dataUrl,
         metadata: {
           inputType: "image",
+          version: "MGI2",
           width: packed.width,
           height: packed.height,
         },
@@ -62,7 +73,7 @@ export async function POST(request: Request) {
 
     throw new Error("inputType harus text atau image.");
   } catch (error) {
-    return NextResponse.json(
+    return noStoreJson(
       {
         error: error instanceof Error ? error.message : "Decrypt request gagal diproses.",
       },
@@ -77,13 +88,17 @@ function parseParams(body: unknown): MagiParams {
   }
 
   const candidate = body as Record<string, unknown>;
-  const params = {
-    playfairKey: String(candidate.playfairKey ?? ""),
-    railFenceDepth: Number(candidate.railFenceDepth ?? 0),
-    desKeyHex: String(candidate.desKey ?? ""),
-    ivHex: String(candidate.iv ?? ""),
-  };
+  const masterKey = String(candidate.masterKey ?? "");
+  validateMasterKey(masterKey);
+  return deriveParamsFromMasterKey(masterKey);
+}
 
-  validateParams(params);
-  return params;
+function noStoreJson(data: unknown, init?: ResponseInit) {
+  return NextResponse.json(data, {
+    ...init,
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+      ...(init?.headers ?? {}),
+    },
+  });
 }

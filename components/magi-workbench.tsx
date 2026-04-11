@@ -5,9 +5,11 @@ import type { ChangeEvent, DragEvent } from "react";
 import {
   ArrowDown,
   ArrowRightLeft,
-  Binary,
   CheckCircle2,
+  Eye,
+  EyeOff,
   ImageIcon,
+  KeyRound,
   LoaderCircle,
   ShieldCheck,
   Sparkles,
@@ -42,40 +44,36 @@ type ExecutionResult = {
   imageMimeType?: string;
 };
 
-type FormErrors = Partial<
-  Record<"playfairKey" | "railFenceDepth" | "desKey" | "iv" | "textInput" | "image", string>
->;
+type FormErrors = Partial<Record<"masterKey" | "textInput" | "image", string>>;
 
 const modeLabels: Record<OperationMode, { title: string; subtitle: string }> = {
   encrypt: {
     title: "Encryption Sequence",
-    subtitle: "Playfair -> Rail Fence -> DES-CBC",
+    subtitle: "Master key -> Playfair -> Rail Fence -> DES-CBC",
   },
   decrypt: {
     title: "Decryption Sequence",
-    subtitle: "DES-CBC -> Rail Fence -> Playfair",
+    subtitle: "DES-CBC -> Rail Fence -> Playfair <- Master key",
   },
 };
 
 const quickStats = [
   { label: "Pipeline", value: "3 Layer", icon: ShieldCheck },
+  { label: "Master Key", value: "Unified", icon: KeyRound },
   { label: "Image Limit", value: "128 x 128", icon: ImageIcon },
-  { label: "DES Mode", value: "CBC 64-bit", icon: Binary },
 ];
 
 const pipelineStages = [
-  { title: "Melchior", subtitle: "Substitution matrix activated" },
-  { title: "Balthasar", subtitle: "Zigzag transposition in progress" },
+  { title: "Melchior", subtitle: "Playfair byte substitution engaged" },
+  { title: "Balthasar", subtitle: "Rail Fence transposition in progress" },
   { title: "Casper", subtitle: "DES-CBC block engine engaged" },
 ];
 
 export function MagiWorkbench() {
   const [mode, setMode] = useState<OperationMode>("encrypt");
   const [inputMode, setInputMode] = useState<InputMode>("text");
-  const [playfairKey, setPlayfairKey] = useState("");
-  const [railFenceDepth, setRailFenceDepth] = useState("3");
-  const [desKey, setDesKey] = useState("");
-  const [iv, setIv] = useState("");
+  const [masterKey, setMasterKey] = useState("");
+  const [showMasterKey, setShowMasterKey] = useState(false);
   const [textInput, setTextInput] = useState("");
   const [preparedImage, setPreparedImage] = useState<PreparedImage | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -92,15 +90,12 @@ export function MagiWorkbench() {
   const formErrors = useMemo(
     () =>
       getFormErrors({
-        playfairKey,
-        railFenceDepth,
-        desKey,
-        iv,
+        masterKey,
         inputMode,
         textInput,
         preparedImage,
       }),
-    [desKey, inputMode, iv, playfairKey, preparedImage, railFenceDepth, textInput],
+    [inputMode, masterKey, preparedImage, textInput],
   );
 
   const visibleErrors = submitAttempted ? formErrors : {};
@@ -160,15 +155,11 @@ export function MagiWorkbench() {
     await prepareImage(file);
   }
 
-  function handleGenerateRandomKeys() {
-    const keys = generateRandomKeys();
-
-    setPlayfairKey(keys.playfairKey);
-    setRailFenceDepth(keys.railFenceDepth);
-    setDesKey(keys.desKey);
-    setIv(keys.iv);
+  function handleGenerateSecureKey() {
+    setMasterKey(generateSecureMasterKey());
+    setShowMasterKey(true);
     setSubmitAttempted(false);
-    toast.success("Random keyset siap dipakai.");
+    toast.success("Master key aman berhasil dibuat.");
   }
 
   async function prepareImage(file: File) {
@@ -222,10 +213,7 @@ export function MagiWorkbench() {
       const requestPromise = executeMagiRequest({
         mode,
         inputMode,
-        playfairKey,
-        railFenceDepth,
-        desKey,
-        iv,
+        masterKey,
         textInput,
         preparedImage,
       });
@@ -271,10 +259,10 @@ export function MagiWorkbench() {
                 <span className="typing-title scanline-text">MAGI CRYPT</span>
               </h1>
               <p className="mt-5 max-w-2xl text-sm uppercase tracking-[0.28em] text-zinc-500 sm:text-base">
-                monochrome command surface
+                keamanan sistem clo1
               </p>
               <p className="mt-2 text-xs uppercase tracking-[0.32em] text-zinc-600">
-                boot sequence // archive-01 ready
+                boot sequence // master key routed
               </p>
             </div>
 
@@ -307,15 +295,15 @@ export function MagiWorkbench() {
                 <h2 className="mt-2 font-[family-name:var(--font-display)] text-3xl text-white">
                   Configuration
                 </h2>
-                <p className="mt-3 text-sm text-zinc-400">Keys and mode.</p>
+                <p className="mt-3 text-sm text-zinc-400">One secret controls the full MAGI chain.</p>
               </div>
               <button
                 type="button"
-                onClick={handleGenerateRandomKeys}
+                onClick={handleGenerateSecureKey}
                 className="terminal-input inline-flex items-center justify-center rounded-2xl border border-white/12 bg-white/[0.04] px-3 py-2 text-[10px] uppercase tracking-[0.22em] text-zinc-200 transition hover:border-white/30 hover:bg-white/10 focus-visible:outline-none"
-                aria-label="Generate random valid keys"
+                aria-label="Generate a secure master key"
               >
-                Generate Random Keys
+                Generate Secure Key
               </button>
             </div>
 
@@ -346,41 +334,12 @@ export function MagiWorkbench() {
                 </div>
               </div>
 
-              <Field
-                label="Playfair Key"
-                hint="Playfair layer."
-                value={playfairKey}
-                onChange={setPlayfairKey}
-                placeholder="contoh: MAGI-ALPHA"
-                error={visibleErrors.playfairKey}
-              />
-
-              <Field
-                label="Rail Fence Depth"
-                hint="Minimum 2."
-                value={railFenceDepth}
-                onChange={setRailFenceDepth}
-                placeholder="3"
-                type="number"
-                error={visibleErrors.railFenceDepth}
-              />
-
-              <Field
-                label="DES Key"
-                hint="64-bit hex."
-                value={desKey}
-                onChange={setDesKey}
-                placeholder="16 hex characters"
-                error={visibleErrors.desKey}
-              />
-
-              <Field
-                label="Initialization Vector"
-                hint="CBC IV."
-                value={iv}
-                onChange={setIv}
-                placeholder="16 hex characters"
-                error={visibleErrors.iv}
+              <MasterKeyField
+                value={masterKey}
+                visible={showMasterKey}
+                onChange={setMasterKey}
+                onToggleVisibility={() => setShowMasterKey((current) => !current)}
+                error={visibleErrors.masterKey}
               />
 
               <div className="flex items-center gap-3 rounded-[22px] border border-white/10 bg-white/[0.03] px-4 py-3">
@@ -437,12 +396,16 @@ export function MagiWorkbench() {
                   <div className="space-y-3">
                     <FieldLabel
                       title="Plaintext / Ciphertext"
-                      subtitle="Message payload."
+                      subtitle={mode === "encrypt" ? "Message payload." : "Ciphertext with MAGI2 marker."}
                     />
                     <textarea
                       value={textInput}
                       onChange={(event) => setTextInput(event.target.value)}
-                      placeholder="Masukkan pesan, NIM, atau data uji yang akan diproses oleh pipeline MAGI."
+                      placeholder={
+                        mode === "encrypt"
+                          ? "Masukkan pesan, NIM, atau data uji untuk diproses oleh pipeline MAGI."
+                          : "Tempel ciphertext MAGI2 hasil encrypt di sini."
+                      }
                       className={cn(
                         "terminal-input min-h-[320px] w-full rounded-[28px] border bg-zinc-950/95 px-5 py-5 text-sm leading-7 text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-white/40",
                         visibleErrors.textInput ? "border-zinc-300/80" : "border-white/10",
@@ -450,14 +413,18 @@ export function MagiWorkbench() {
                     />
                     <InlineMessage
                       error={visibleErrors.textInput}
-                      hint="Teks akan dikirim sebagai payload string ke backend."
+                      hint={
+                        mode === "encrypt"
+                          ? "Teks dikirim sebagai plaintext string."
+                          : "Decrypt membaca header versi MAGI2 sebelum membuka payload."
+                      }
                     />
                   </div>
                 ) : (
                   <div className="space-y-4">
                     <FieldLabel
                       title="Image Dropzone"
-                      subtitle={mode === "encrypt" ? "PNG or JPG asset." : "MAGI encrypted PNG."}
+                      subtitle={mode === "encrypt" ? "PNG or JPG asset." : "MAGI encrypted PNG (MGI2)."}
                     />
                     <button
                       type="button"
@@ -499,7 +466,7 @@ export function MagiWorkbench() {
                           </p>
                           <p className="mt-3 max-w-xl text-sm leading-7 text-zinc-500">
                             {mode === "encrypt"
-                              ? "Initialize encryption sequence."
+                              ? "Master key will drive the full legacy MAGI chain."
                               : "Use the PNG downloaded from encrypt output."}
                           </p>
                         </>
@@ -524,7 +491,7 @@ export function MagiWorkbench() {
                         />
                         <div className="space-y-3">
                           <div>
-                              <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+                            <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
                               Prepared Payload
                             </p>
                             <h3 className="mt-2 font-[family-name:var(--font-display)] text-xl text-white">
@@ -614,8 +581,8 @@ export function MagiWorkbench() {
                           href={result.imageDataUrl}
                           download={
                             result.outputType === "image" && result.endpoint.includes("encrypt")
-                              ? "magi-encrypted.png"
-                              : "magi-restored.png"
+                              ? "magi2-encrypted.png"
+                              : "magi2-restored.png"
                           }
                           className="inline-flex rounded-xl border border-white/12 px-4 py-2 text-xs uppercase tracking-[0.2em] text-zinc-200 transition hover:bg-white/10"
                         >
@@ -675,38 +642,44 @@ export function MagiWorkbench() {
   );
 }
 
-function Field({
-  label,
-  hint,
+function MasterKeyField({
   value,
+  visible,
   onChange,
-  placeholder,
+  onToggleVisibility,
   error,
-  type = "text",
 }: {
-  label: string;
-  hint: string;
   value: string;
+  visible: boolean;
   onChange: (value: string) => void;
-  placeholder: string;
+  onToggleVisibility: () => void;
   error?: string;
-  type?: "text" | "number";
 }) {
   return (
-    <label className="block">
-      <FieldLabel title={label} subtitle={hint} />
-      <input
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        className={cn(
-          "terminal-input mt-3 w-full rounded-2xl border bg-zinc-950/95 px-4 py-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-white/60 focus:ring-2 focus:ring-white/20",
-          error ? "border-zinc-300/80" : "border-white/10",
-        )}
-      />
-      <InlineMessage error={error} />
-    </label>
+    <div>
+      <FieldLabel title="Master Key" subtitle="Deterministically expands into Playfair, Rail Fence, DES, and IV." />
+      <div className="mt-3 flex gap-2">
+        <input
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="Enter one secret to drive the full chain"
+          className={cn(
+            "terminal-input min-w-0 flex-1 rounded-2xl border bg-zinc-950/95 px-4 py-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-white/60 focus:ring-2 focus:ring-white/20",
+            error ? "border-zinc-300/80" : "border-white/10",
+          )}
+        />
+        <button
+          type="button"
+          onClick={onToggleVisibility}
+          className="terminal-input inline-flex h-[50px] w-[50px] items-center justify-center rounded-2xl border border-white/12 bg-white/[0.04] text-zinc-200 transition hover:border-white/30 hover:bg-white/10"
+          aria-label={visible ? "Hide master key" : "Show master key"}
+        >
+          {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
+      <InlineMessage error={error} hint="Master key minimal 16 karakter, tidak disimpan, dan harus sama saat decrypt." />
+    </div>
   );
 }
 
@@ -805,38 +778,24 @@ function PipelineOverlay({
 }
 
 function getFormErrors({
-  playfairKey,
-  railFenceDepth,
-  desKey,
-  iv,
+  masterKey,
   inputMode,
   textInput,
   preparedImage,
 }: {
-  playfairKey: string;
-  railFenceDepth: string;
-  desKey: string;
-  iv: string;
+  masterKey: string;
   inputMode: InputMode;
   textInput: string;
   preparedImage: PreparedImage | null;
 }) {
   const errors: FormErrors = {};
 
-  if (!playfairKey.trim()) {
-    errors.playfairKey = "Playfair key wajib diisi.";
-  }
-
-  if (Number(railFenceDepth) < 2) {
-    errors.railFenceDepth = "Rail Fence depth minimal 2.";
-  }
-
-  if (!isHex64(desKey)) {
-    errors.desKey = "DES key harus terdiri dari 16 karakter hex.";
-  }
-
-  if (!isHex64(iv)) {
-    errors.iv = "IV CBC harus terdiri dari 16 karakter hex.";
+  if (masterKey.trim().length === 0) {
+    errors.masterKey = "Master key wajib diisi.";
+  } else if (masterKey.trim().length < 16) {
+    errors.masterKey = "Master key minimal 16 karakter.";
+  } else if (masterKey.trim().length > 128) {
+    errors.masterKey = "Master key maksimal 128 karakter.";
   }
 
   if (inputMode === "text" && !textInput.trim()) {
@@ -850,69 +809,23 @@ function getFormErrors({
   return errors;
 }
 
-function isHex64(value: string) {
-  return /^[0-9a-fA-F]{16}$/.test(value.trim());
-}
-
-function generateRandomKeys() {
-  const playfairSeeds = [
-    "MELCHIOR",
-    "BALTHASAR",
-    "CASPER",
-    "TERMINAL",
-    "BLACKBOX",
-    "ARCHIVE",
-    "NERV",
-    "ORACLE",
-  ];
-  const seed = playfairSeeds[randomInt(playfairSeeds.length)];
-
-  return {
-    playfairKey: `${seed}-${randomHex(3)}`,
-    railFenceDepth: String(randomInt(7) + 2),
-    desKey: randomHex(8),
-    iv: randomHex(8),
-  };
-}
-
-function randomHex(byteLength: number) {
-  const bytes = new Uint8Array(byteLength);
-  window.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
-}
-
-function randomInt(maxExclusive: number) {
-  const bytes = new Uint32Array(1);
-  window.crypto.getRandomValues(bytes);
-  return bytes[0] % maxExclusive;
-}
-
 async function executeMagiRequest({
   mode,
   inputMode,
-  playfairKey,
-  railFenceDepth,
-  desKey,
-  iv,
+  masterKey,
   textInput,
   preparedImage,
 }: {
   mode: OperationMode;
   inputMode: InputMode;
-  playfairKey: string;
-  railFenceDepth: string;
-  desKey: string;
-  iv: string;
+  masterKey: string;
   textInput: string;
   preparedImage: PreparedImage | null;
 }): Promise<ExecutionResult> {
   const endpoint = `/api/${mode}`;
   const payload = await buildMagiPayload({
     inputMode,
-    playfairKey,
-    railFenceDepth,
-    desKey,
-    iv,
+    masterKey,
     textInput,
     preparedImage,
   });
@@ -943,15 +856,15 @@ async function executeMagiRequest({
     return {
       outputType: "image",
       endpoint,
-      title: mode === "encrypt" ? "Encrypted PNG Container" : "Restored Image Output",
+      title: mode === "encrypt" ? "MGI2 PNG Container" : "Restored Image Output",
       summary:
         mode === "encrypt"
-          ? "RGBA payload telah dibungkus menjadi PNG noise yang tetap valid."
-          : "PNG terenkripsi berhasil dipulihkan ke dimensi gambar aslinya.",
+          ? "Master key diturunkan ke parameter internal MAGI lalu dibungkus ke container PNG."
+          : "Container MGI2 berhasil dibuka dan dipulihkan ke dimensi aslinya.",
       output:
         mode === "encrypt"
-          ? "Image payload packed into a valid PNG container."
-          : "Image payload restored from the encrypted PNG container.",
+          ? "Image payload packed into a valid MGI2 PNG container."
+          : "Image payload restored from the encrypted MGI2 container.",
       metadata: data.metadata ?? {},
       imageDataUrl: data.dataUrl,
       imageMimeType: "image/png",
@@ -961,11 +874,11 @@ async function executeMagiRequest({
   return {
     outputType: "text",
     endpoint,
-    title: mode === "encrypt" ? "Ciphertext Output" : "Plaintext Output",
+    title: mode === "encrypt" ? "MAGI2 Ciphertext" : "Plaintext Output",
     summary:
       mode === "encrypt"
-        ? "Teks berhasil melewati tiga layer kriptografi dan dikembalikan sebagai hex."
-        : "Ciphertext berhasil dibuka dan dipulihkan menjadi plaintext asli.",
+        ? "Master key diekspansi secara deterministik lalu diteruskan ke tiga layer legacy MAGI."
+        : "Ciphertext MAGI2 berhasil dibuka dengan master key yang sama.",
     output: data.result ?? "",
     metadata: data.metadata ?? {},
   };
@@ -973,28 +886,19 @@ async function executeMagiRequest({
 
 async function buildMagiPayload({
   inputMode,
-  playfairKey,
-  railFenceDepth,
-  desKey,
-  iv,
+  masterKey,
   textInput,
   preparedImage,
 }: {
   inputMode: InputMode;
-  playfairKey: string;
-  railFenceDepth: string;
-  desKey: string;
-  iv: string;
+  masterKey: string;
   textInput: string;
   preparedImage: PreparedImage | null;
 }) {
   if (inputMode === "text") {
     return {
       inputType: "text",
-      playfairKey,
-      railFenceDepth: Number(railFenceDepth),
-      desKey,
-      iv,
+      masterKey,
       text: textInput,
     };
   }
@@ -1010,10 +914,7 @@ async function buildMagiPayload({
 
   return {
     inputType: "image",
-    playfairKey,
-    railFenceDepth: Number(railFenceDepth),
-    desKey,
-    iv,
+    masterKey,
     image: {
       data: await fileToBase64(preparedImage.file),
       mimeType: imageMimeType,
@@ -1152,6 +1053,13 @@ function fileToBase64(file: File) {
     reader.onerror = () => reject(new Error("Gagal membaca file image."));
     reader.readAsDataURL(file);
   });
+}
+
+function generateSecureMasterKey() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_";
+  const bytes = new Uint8Array(24);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
 }
 
 function formatBytes(value: number) {

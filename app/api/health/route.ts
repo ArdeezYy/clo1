@@ -6,5 +6,9 @@ export async function GET() {
   return NextResponse.json({
     status: "online",
     timestamp: new Date().toISOString(),
+  }, {
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+    },
   });
 }
