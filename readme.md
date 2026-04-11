@@ -1,77 +1,190 @@
-
-
 # PRODUCT REQUIREMENTS DOCUMENT (PRD)
-**Nama Produk:** MAGI Cryptosystem (Super Encryption System)
-**Versi Dokumen:** 1.0.0
-**Penulis / Pengembang:** Ardika Putra Hadian (101032300240)
-**Mata Kuliah:** Keamanan Sistem, S1 Teknik Komputer, Universitas Telkom
+**Nama Produk:** MAGI Cryptosystem (Super Encryption System)  
+**Versi Dokumen:** 1.1.0  
+**Penulis / Pengembang:** Ardika Putra Hadian (101032300240)  
+**Mata Kuliah:** Keamanan Sistem, S1 Teknik Komputer, Universitas Telkom  
 **Tanggal:** April 2026
 
 ---
 
 ## 1. Ringkasan Eksekutif (*Executive Summary*)
-MAGI Cryptosystem adalah sebuah perangkat lunak aplikasi berbasis web (*web-based application*) yang dirancang untuk mendemonstrasikan proses enkripsi dan dekripsi data secara absolut. Sistem ini mengimplementasikan konsep *Super Encryption* dengan menggabungkan tiga algoritma kriptografi yang berbeda (Playfair, Rail Fence, dan DES) ke dalam mode *Cipher Block Chaining* (CBC). Seluruh algoritma kriptografi dibangun murni dari awal (*from scratch*) tanpa menggunakan *library* kriptografi pihak ketiga, guna memenuhi standar akademik tertinggi dan membuktikan pemahaman manipulasi biner/byte tingkat rendah.
+MAGI Cryptosystem adalah aplikasi web untuk mendemonstrasikan proses enkripsi dan dekripsi data teks maupun gambar menggunakan konsep *Super Encryption*. Sistem ini mempertahankan tiga algoritma utama yang disusun berlapis, yaitu Playfair Cipher, Rail Fence Cipher, dan DES dalam mode CBC. Seluruh algoritma inti tetap dibangun murni dari awal (*from scratch*) tanpa menggunakan *library* kriptografi pihak ketiga.
+
+Pada versi implementasi saat ini, pengalaman pengguna telah disederhanakan. Pengguna tidak lagi memasukkan empat parameter kunci secara manual. Sebagai gantinya, pengguna cukup memasukkan satu *master key*. Sistem kemudian menurunkan *master key* tersebut secara deterministik menjadi parameter internal:
+
+- `playfairKey`
+- `railFenceDepth`
+- `desKeyHex`
+- `ivHex`
+
+Dengan pendekatan ini, identitas akademik mesin kriptografi tetap dipertahankan, tetapi antarmuka menjadi lebih modern, ringkas, dan mudah dipakai.
+
+---
 
 ## 2. Tujuan Proyek (*Project Objectives*)
-* **Tujuan Akademik:** Mencapai nilai evaluasi maksimal (100 Poin) pada Projek CLO 1 Keamanan Sistem dengan memenuhi seluruh kriteria bonus (implementasi mode Non-ECB, >2 metode kriptografi, dan pengolahan file non-teks/gambar).
-* **Tujuan Teknis:** Membangun arsitektur *Full-Stack* yang dipisahkan (*Decoupled Architecture*) antara *Frontend* dan *Backend* untuk memaksimalkan performa pemrosesan matematis kriptografi.
-* **Tujuan Pengguna:** Menyediakan antarmuka yang modern, cepat, dan mudah dipahami bagi pengguna untuk mengamankan data teks maupun gambar.
+- **Tujuan Akademik:** Memenuhi kebutuhan tugas CLO 1 Keamanan Sistem dengan implementasi kriptografi berlapis, mode non-ECB, serta dukungan untuk data teks dan gambar.
+- **Tujuan Teknis:** Membangun aplikasi *full-stack* berbasis Next.js dengan frontend, API, dan mesin kriptografi yang saling terintegrasi dalam satu codebase.
+- **Tujuan Pengguna:** Menyediakan antarmuka yang sederhana dan cepat dipahami, sehingga user cukup memasukkan satu *master key* untuk menjalankan seluruh pipeline MAGI.
+
+---
 
 ## 3. Arsitektur Sistem (*System Architecture*)
-Sistem menggunakan arsitektur *Client-Server* yang di- *deploy* pada mesin Virtual Machine (VM) Ubuntu dengan spesifikasi 6-Core CPU dan RAM 8GB.
+Sistem menggunakan arsitektur *client-server* yang dijalankan dalam satu aplikasi Next.js.
 
-* **Frontend (Presentasi & UI):**
-    * **Framework:** Next.js (React) berbasis TypeScript.
-    * **UI Library:** Tailwind CSS dan shadcn/ui.
-    * **Fungsi Utama:** Menangani interaksi pengguna, validasi input, dan pra-pemrosesan data (*Auto-Downscale* resolusi gambar secara lokal di *browser* sebelum dikirim ke server).
-* **Backend (Mesin Komputasi Kriptografi):**
-    * **Framework:** Python 3 + FastAPI.
-    * **Fungsi Utama:** Menerima *request* dari Frontend, menjalankan algoritma kriptografi murni, dan mengembalikan hasil (teks/matriks gambar) melalui RESTful API.
+- **Frontend (Presentasi & UI):**
+  - Framework: Next.js (React) berbasis TypeScript
+  - UI stack: Tailwind CSS, komponen kustom, Sonner untuk toast
+  - Fungsi utama: menangani interaksi pengguna, validasi input, pemrosesan awal gambar di browser, dan menampilkan hasil
+- **API Layer (Route Handlers):**
+  - Framework: Next.js App Router Route Handlers
+  - Endpoint utama:
+    - `POST /api/encrypt`
+    - `POST /api/decrypt`
+    - `GET /api/health`
+  - Fungsi utama: menerima request dari frontend, memvalidasi input, menurunkan *master key*, dan memanggil mesin MAGI
+- **Cryptographic Engine (Backend Logic):**
+  - Bahasa: TypeScript
+  - Lokasi: `lib/magi`
+  - Fungsi utama: menjalankan Playfair, Rail Fence, DES-CBC, SHA-256 from-scratch, dan pengemasan gambar terenkripsi
+
+### Flowchart Sistem
+```mermaid
+flowchart TD
+    A["User membuka UI MAGI"] --> B["Pilih mode: Encrypt / Decrypt"]
+    B --> C["Masukkan Master Key"]
+    C --> D["Pilih payload: Text / Image"]
+    D --> E["Frontend kirim request ke /api/encrypt atau /api/decrypt"]
+    E --> F["API validasi request dan master key"]
+    F --> G["Derivasi master key -> playfairKey, railFenceDepth, desKeyHex, ivHex"]
+    G --> H{"Mode operasi"}
+
+    H -->|Encrypt| I["Engine MAGI: Add header -> Playfair -> Rail Fence -> DES-CBC"]
+    H -->|Decrypt| J["Engine MAGI: DES-CBC -> Rail Fence -> Playfair -> Strip header"]
+
+    I --> K{"Jenis payload"}
+    J --> L{"Jenis payload"}
+
+    K -->|Text| M["Output text dengan marker MAGI2.<HEX>"]
+    K -->|Image| N["Output PNG container dengan header MGI2"]
+
+    L -->|Text| O["Output plaintext UTF-8"]
+    L -->|Image| P["Output PNG hasil pemulihan gambar"]
+
+    M --> Q["Frontend tampilkan hasil dan metadata"]
+    N --> Q
+    O --> Q
+    P --> Q
+```
+
+---
 
 ## 4. Spesifikasi Mesin Kriptografi (*Cryptographic Engine Specification*)
-Mesin utama (MAGI) dibagi menjadi tiga subsistem yang dieksekusi secara berurutan (*Sequential Layering*):
+Mesin utama (MAGI) dibagi menjadi tiga subsistem yang dieksekusi secara berurutan.
 
-1.  **Layer 1: Subsistem Melchior (Playfair Cipher)**
-    * **Kategori:** Kriptografi Klasik (Substitusi).
-    * **Logika:** Memproses *array byte* menjadi pasangan *bigram* dan melakukan substitusi posisi berdasarkan matriks kunci.
-2.  **Layer 2: Subsistem Balthasar (Rail Fence Cipher)**
-    * **Kategori:** Kriptografi Klasik (Transposisi).
-    * **Logika:** Melakukan permutasi atau pengacakan posisi elemen *byte* menggunakan alur zigzag berdasarkan nilai numerik *Depth*.
-3.  **Layer 3: Subsistem Casper (DES dalam Mode CBC)**
-    * **Kategori:** Kriptografi Modern (*Block Cipher*).
-    * **Logika:** Data dipotong menjadi blok 64-bit. Setiap blok di-XOR dengan *Initialization Vector* (IV) atau blok *ciphertext* sebelumnya (Mode CBC). Setelah itu, blok masuk ke mesin DES yang terdiri dari *Initial Permutation*, 16-Ronde *Feistel Network*, matriks *S-Box*, *P-Box*, dan *Final Permutation*.
+### Layer 1: Subsistem Melchior (Playfair Cipher)
+- **Kategori:** Kriptografi klasik (*substitution cipher*)
+- **Implementasi:** Byte-based Playfair 16x16
+- **Logika:** Data dipecah menjadi pasangan byte (*bigram*) lalu disubstitusi berdasarkan tabel Playfair yang dibangun dari `playfairKey`
+
+### Layer 2: Subsistem Balthasar (Rail Fence Cipher)
+- **Kategori:** Kriptografi klasik (*transposition cipher*)
+- **Implementasi:** Zigzag permutation berbasis byte array
+- **Logika:** Byte dipetakan ke jalur zigzag berdasarkan `railFenceDepth`, lalu dibaca ulang per rail
+
+### Layer 3: Subsistem Casper (DES dalam Mode CBC)
+- **Kategori:** *Block cipher*
+- **Implementasi:** DES-CBC from-scratch
+- **Logika:** Data dipotong menjadi blok 64-bit, di-XOR dengan IV atau blok ciphertext sebelumnya, lalu diproses melalui 16 ronde Feistel, S-Box, P-Box, dan permutasi DES
+
+### Derivasi Master Key
+Sebelum data masuk ke tiga layer di atas, sistem menjalankan lapisan derivasi kunci:
+
+- Input publik: `masterKey`
+- Mesin derivasi: SHA-256 from-scratch
+- Hasil turunan:
+  - `playfairKey`
+  - `railFenceDepth`
+  - `desKeyHex`
+  - `ivHex`
+
+Derivasi ini bersifat deterministik. Artinya, *master key* yang sama akan selalu menghasilkan parameter internal yang sama.
+
+### Marker Versi Payload
+Untuk membedakan payload baru berbasis *master key*:
+
+- Payload teks memakai marker: `MAGI2.`
+- Payload gambar memakai header container: `MGI2`
+
+Marker ini digunakan untuk validasi format pada saat dekripsi.
+
+---
 
 ## 5. Kebutuhan Fungsional (*Functional Requirements*)
 
 | ID | Nama Fitur | Deskripsi Fungsionalitas | Kriteria Penerimaan (*Acceptance Criteria*) |
 | :--- | :--- | :--- | :--- |
-| **FR-01** | **Pemilihan Mode Operasi** | Pengguna dapat memilih apakah ingin melakukan Enkripsi atau Dekripsi. | Sistem menyediakan *toggle/tabs* yang mengubah rute API antara `/encrypt` dan `/decrypt`. |
-| **FR-02** | **Pemrosesan Data Teks** | Sistem dapat menerima input teks (string), memprosesnya melalui 3 layer, dan menghasilkan *ciphertext*. | Hasil enkripsi berupa format Hex/Base64. Dekripsi mengembalikan teks persis seperti semula tanpa karakter hilang. |
-| **FR-03** | **Pemrosesan File Gambar** | Sistem dapat menerima file `.png` atau `.jpg`, mengubah *pixel* ke *byte array*, dan mengenkripsinya menjadi *noise* visual. | File gambar hasil enkripsi tidak *corrupt* (bisa dibuka oleh penampil gambar OS). Gambar hasil dekripsi memiliki piksel 100% sama dengan sumber. |
-| **FR-04** | **Parameter Kunci Terpadu** | Pengguna wajib memasukkan 4 parameter unik untuk memulai operasi keamanan. | Tersedia input wajib untuk: Key Playfair (String), Depth Rail Fence (Integer), Key DES (Hex 64-bit), dan IV CBC (Hex 64-bit). |
-| **FR-05** | **Auto-Downscale Resolusi** | Sistem Frontend akan memperkecil resolusi gambar ukuran besar secara otomatis. | Gambar dengan lebar/tinggi > 128px akan di-*resize* ke maksimal 128x128px sebelum dikirim via API untuk mencegah beban komputasi berlebih. |
+| **FR-01** | **Pemilihan Mode Operasi** | Pengguna dapat memilih mode Enkripsi atau Dekripsi. | Sistem menyediakan *toggle* yang mengubah request ke `/api/encrypt` atau `/api/decrypt`. |
+| **FR-02** | **Pemrosesan Data Teks** | Sistem menerima input teks, memprosesnya melalui pipeline MAGI, dan mengembalikan hasil sesuai mode. | Hasil encrypt teks berbentuk `MAGI2.<HEX>`. Hasil decrypt mengembalikan plaintext persis seperti semula. |
+| **FR-03** | **Pemrosesan File Gambar** | Sistem menerima file `.png` atau `.jpg`, mengubahnya menjadi byte RGBA, lalu mengenkripsinya melalui pipeline MAGI. | Hasil encrypt gambar dibungkus menjadi PNG valid dengan header `MGI2`. Hasil decrypt harus menghasilkan gambar dengan piksel identik terhadap sumber. |
+| **FR-04** | **Master Key Terpadu** | Pengguna cukup memasukkan satu *master key* untuk memulai operasi keamanan. | Sistem menurunkan *master key* secara deterministik menjadi `playfairKey`, `railFenceDepth`, `desKeyHex`, dan `ivHex` tanpa input manual tambahan dari user. |
+| **FR-05** | **Auto-Downscale Resolusi** | Frontend memperkecil resolusi gambar besar secara otomatis saat mode encrypt. | Gambar dengan lebar/tinggi > 128px akan di-*resize* menjadi maksimum 128x128px sebelum dikirim ke API. |
+| **FR-06** | **Validasi Marker Payload** | Sistem harus membedakan payload baru berbasis *master key* dari input biasa. | Dekripsi teks hanya menerima format `MAGI2.<HEX>`. Dekripsi gambar hanya menerima PNG dengan header `MGI2`. |
+| **FR-07** | **Generate Secure Key** | Sistem menyediakan tombol untuk membuat *master key* acak yang siap dipakai. | Saat tombol ditekan, field `masterKey` terisi string acak valid dan dapat langsung dipakai untuk encrypt/decrypt. |
+
+---
 
 ## 6. Kebutuhan Non-Fungsional (*Non-Functional Requirements*)
-1.  **Kinerja (Performance):** Berkat *Auto-Downscale* dan VM 6-Core, proses enkripsi satu file gambar (maks. 128x128 px) harus selesai dalam waktu di bawah **5 detik**.
-2.  **Keandalan (Reliability):** REST API Backend (FastAPI) harus menangani *error handling* dengan baik (misal: memunculkan pesan HTTP 400 *Bad Request* jika kunci DES kurang dari 8 byte), tanpa membuat *server crash*.
-3.  **Batasan Keamanan (Security Constraint):** Sistem tidak menyimpan data kunci (*Key/IV*) maupun file pengguna di *database* atau penyimpanan lokal server. Semuanya dihapus dari memori (*RAM*) tepat setelah respons API dikirim.
+1. **Kinerja (Performance):** Dengan *auto-downscale* dan pipeline byte-based, proses enkripsi satu file gambar maksimum 128x128 px harus selesai dalam waktu yang wajar untuk demonstrasi kelas.
+2. **Keandalan (Reliability):** API harus mengembalikan error HTTP 400 jika input tidak valid, misalnya *master key* kosong, marker `MAGI2` hilang, header `MGI2` tidak ditemukan, atau padding DES tidak valid.
+3. **Konsistensi (Determinism):** *Master key* yang sama dan plaintext yang sama harus menghasilkan ciphertext yang sama, karena derivasi parameter internal dilakukan secara deterministik.
+4. **Keamanan Implementasi (Implementation Security Constraint):** Sistem tidak menyimpan *master key*, parameter turunan, maupun file pengguna ke database atau penyimpanan permanen server.
+5. **Keterbacaan Akademik (Academic Transparency):** Struktur kode harus tetap mudah dijelaskan per file, terutama pada modul `engine.ts`, `des.ts`, `sha256.ts`, `master-key.ts`, dan `image-codec.ts`.
+
+---
 
 ## 7. Desain Antarmuka (*User Interface & Experience*)
-* **Tema:** Gelap (*Dark Mode*) secara *default* untuk memberikan kesan *cyberpunk/hacker*.
-* **Layout Utama:**
-    * *Header*: Logo dan Nama "MAGI Cryptosystem".
-    * *Sidebar/Panel Kiri*: Form Input untuk seluruh Kunci dan Konfigurasi Mode.
-    * *Main Area/Panel Kanan*: Area *drag-and-drop* file gambar, *text area* untuk pesan input, dan area *preview* hasil (*output*).
-* **Feedback:** Menggunakan komponen *Toast/Sonner* dari shadcn untuk memberitahu pengguna jika proses "Berhasil" atau "Gagal". Tombol "Eksekusi" akan menampilkan animasi *spinner* selama sistem melakukan komputasi.
+- **Tema:** Monochrome hitam-putih dengan nuansa terminal/retro
+- **Layout utama:**
+  - Header: judul `MAGI CRYPT` dan statistik ringkas
+  - Panel kiri: mode operasi, input `masterKey`, tombol show/hide, tombol generate key, status server
+  - Panel kanan: *workspace* untuk payload teks atau gambar, tombol eksekusi, dan panel output
+- **Feedback sistem:**
+  - Toast sukses/gagal dengan Sonner
+  - Overlay pipeline saat proses berjalan
+  - Status server online/offline berbasis endpoint health check
+- **Aksi utama user:**
+  - memasukkan satu *master key*
+  - memilih text/image payload
+  - menjalankan encrypt/decrypt
+  - mengunduh hasil PNG bila mode gambar
+
+---
 
 ## 8. Di Luar Cakupan (*Out of Scope*)
-Untuk menjaga fokus pengembangan, spesifikasi berikut dinyatakan di luar cakupan rilis versi 1.0.0:
-1.  Pemrosesan dokumen multi-media lainnya (Video, Audio, PDF, DOCX).
-2.  Enkripsi gambar beresolusi tinggi (misal: 1080p, 4K) karena limitasi kecepatan *script* Python murni.
-3.  Sistem Autentikasi/Login pengguna (Sistem bebas diakses oleh siapa saja yang memiliki *link* URL VM).
+1. Pemrosesan dokumen lain seperti video, audio, PDF, atau DOCX
+2. Enkripsi gambar resolusi tinggi seperti 1080p atau 4K
+3. Sistem login/autentikasi pengguna
+4. Kompatibilitas dengan payload lama yang belum memakai marker `MAGI2` atau header `MGI2`
+
+---
 
 ## 9. Kriteria Persetujuan Proyek (*Sign-off / Success Metrics*)
 Proyek dianggap sukses dan siap dipresentasikan jika:
-1.  Tidak ada satupun *library* seperti `pycryptodome` atau `cryptography` yang terdeteksi di dalam *source code* Python.
-2.  Aplikasi berhasil di-*deploy* di VM Ubuntu dan dapat diakses publik melalui *browser*.
-3.  Uji coba enkripsi-dekripsi *string* NIM pengguna (`101032300240`) dan gambar profil berhasil tanpa mengalami kehilangan data (*lossless*).
+
+1. Algoritma inti Playfair, Rail Fence, DES-CBC, dan SHA-256 pada sistem aktif tetap ditulis manual tanpa *library* kriptografi pihak ketiga.
+2. Aplikasi berhasil dijalankan dan diakses melalui browser.
+3. Encrypt/decrypt teks dengan *master key* yang sama berhasil mengembalikan plaintext awal tanpa kehilangan data.
+4. Encrypt/decrypt gambar berhasil mengembalikan dimensi dan piksel yang identik.
+5. Marker `MAGI2` dan header `MGI2` tervalidasi dengan benar pada proses decrypt.
+6. `npm run lint` dan `npm run build` berhasil dijalankan pada codebase final.
+
+---
+
+## 10. Catatan Implementasi Aktual
+Berikut catatan penting agar PRD ini sinkron dengan implementasi saat ini:
+
+- Backend aktif berada di Next.js App Router route handlers, bukan FastAPI
+- *Master key* adalah satu-satunya input kunci yang diisi pengguna
+- Parameter kunci lama tetap dipakai di dalam engine, tetapi hanya sebagai parameter internal hasil derivasi
+- Output teks terenkripsi tidak lagi berupa hex polos, melainkan `MAGI2.<HEX>`
+- Output gambar terenkripsi menggunakan PNG container valid dengan header `MGI2`
