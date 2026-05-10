@@ -1,5 +1,4 @@
 # DOCUMENTATION
-# Website bisa diakses di https://clo1.vercel.app dan repository https://github.com/ArdeezYy/clo1
 ## Gambaran Umum
 
 Sistem kriptografi pada aplikasi ini menggunakan satu `master key` untuk
@@ -7,15 +6,15 @@ membangkitkan seluruh parameter yang dibutuhkan oleh tiga lapisan transformasi:
 
 1. Playfair 16 x 16 berbasis byte
 2. Rail Fence transposition
-3. DES-CBC
+3. DES sebagai block cipher dengan mode `CBC` atau `ECB`
 
 Urutan enkripsi adalah:
 
-`plaintext -> length header -> Playfair -> Rail Fence -> DES-CBC -> ciphertext`
+`plaintext -> length header -> Playfair -> Rail Fence -> DES-(CBC/ECB) -> ciphertext`
 
 Urutan dekripsi adalah kebalikannya:
 
-`ciphertext -> DES-CBC -> Rail Fence -> Playfair -> strip length header -> plaintext`
+`ciphertext -> DES-(CBC/ECB) -> Rail Fence -> Playfair -> strip length header -> plaintext`
 
 Dokumentasi ini hanya menjelaskan cara kerja kriptografinya.
 
@@ -48,9 +47,12 @@ Hasil derivasi dipetakan menjadi:
 - `railFenceDepth`: `(byte % 7) + 2`, sehingga nilainya berada pada rentang 2..8
 - `desKeyHex`: 8 byte kunci DES, disajikan sebagai 16 karakter hex
 - `ivHex`: 8 byte initialization vector, disajikan sebagai 16 karakter hex
+- `blockMode`: mode blok aktif, bernilai `cbc` atau `ecb`
 
 Karena seluruh parameter diturunkan dari master key yang sama, proses dekripsi
 akan menghasilkan parameter identik selama master key yang dimasukkan sama.
+Nilai `blockMode` sendiri dipilih pada saat request, lalu ikut menentukan jalur
+akhir di lapisan DES dan format marker payload.
 
 ## 2. Representasi Data Dasar
 
@@ -145,9 +147,12 @@ Pada dekripsi, sistem:
 Rail Fence di sini murni transposisi, sehingga tidak mengubah nilai byte,
 hanya posisi byte.
 
-## 6. DES-CBC
+## 6. DES Sebagai Lapisan Akhir
 
-Lapisan terakhir adalah DES dalam mode CBC.
+Lapisan terakhir adalah DES dengan dua mode operasi yang tersedia:
+
+- `CBC` untuk mode berantai dengan IV
+- `ECB` untuk mode blok mandiri tanpa chaining
 
 ### 6.1 Kunci dan IV
 
@@ -156,6 +161,11 @@ Lapisan terakhir adalah DES dalam mode CBC.
 
 Keduanya dikirim dan dipakai dalam bentuk byte, walaupun di internal sering
 ditampilkan sebagai string hex 16 karakter.
+
+Catatan:
+
+- `desKeyHex` dipakai pada mode `CBC` maupun `ECB`
+- `ivHex` hanya dipakai pada mode `CBC`
 
 ### 6.2 Padding
 
@@ -184,6 +194,21 @@ Dekripsi blok bekerja sebagai berikut:
 2. hasilnya di-XOR dengan blok ciphertext sebelumnya
 3. untuk blok pertama, XOR dilakukan terhadap IV
 
+### 6.4 Mekanisme ECB
+
+Pada mode `ECB`, setiap blok 8 byte diproses secara mandiri:
+
+1. plaintext dipadding dengan `PKCS#7`
+2. tiap blok langsung masuk ke DES block cipher
+3. tidak ada XOR dengan IV
+4. tidak ada ketergantungan antarblok
+
+Pada dekripsi:
+
+1. setiap blok ciphertext didekripsi langsung dengan DES
+2. hasil seluruh blok digabung
+3. padding diverifikasi dan dihapus
+
 Implementasi DES di dalam kode meliputi:
 
 - initial permutation (`IP`)
@@ -196,43 +221,73 @@ Implementasi DES di dalam kode meliputi:
 
 ## 7. Format Ciphertext Teks
 
-Untuk payload teks, hasil akhir DES-CBC diserialisasi sebagai:
+Untuk payload teks, hasil akhir setelah lapisan DES diserialisasi sebagai
+string marker + hex ciphertext.
 
-`MAGI2.` + hex(cipherBytes)
+Format yang dipakai:
+
+- mode `CBC`: `MAGI2.` + `hex(cipherBytes)`
+- mode `ECB`: `MAGI2E.` + `hex(cipherBytes)`
 
 Contoh bentuk umum:
 
-`MAGI2.4FA1...`
+- `MAGI2.4FA1...`
+- `MAGI2E.A1BC...`
 
 Aturannya:
 
-- marker wajib diawali `MAGI2.`
+- marker wajib diawali `MAGI2.` atau `MAGI2E.`
 - setelah marker, seluruh isi harus berupa hex dengan panjang genap
 
 Saat dekripsi, sistem:
 
-1. memverifikasi marker `MAGI2.`
-2. mengubah bagian hex menjadi byte
-3. memasukkan byte tersebut ke pipeline dekripsi
+1. mendeteksi marker payload
+2. memastikan marker cocok dengan `blockMode` yang dipilih user
+3. mengubah bagian hex menjadi byte
+4. memasukkan byte tersebut ke pipeline dekripsi
+
+Jika marker dan mode blok tidak cocok, request decrypt ditolak.
 
 ## 8. Format Payload Gambar
 
 Untuk payload gambar, ciphertext byte tidak ditampilkan sebagai string hex.
-Sebaliknya, byte hasil DES-CBC dikemas ke data gambar PNG.
+Sebaliknya, byte hasil DES dikemas ke data gambar PNG.
+
+Header PNG container dibedakan berdasarkan mode blok:
+
+- mode `CBC` memakai magic header `MGI2`
+- mode `ECB` memakai magic header `MGE2`
+
+Empat byte pertama PNG payload dipakai sebagai penanda mode, lalu header juga
+menyimpan:
+
+- lebar gambar asli
+- tinggi gambar asli
+- panjang ciphertext dalam byte
+
+Struktur logis header:
+
+1. 4 byte magic (`MGI2` atau `MGE2`)
+2. mengubah bagian hex menjadi byte
+2. 2 byte lebar asli
+3. 2 byte tinggi asli
+4. 4 byte panjang ciphertext
 
 Alur logisnya:
 
 1. gambar input diubah ke RGBA mentah
 2. RGBA mentah dienkripsi oleh pipeline yang sama
-3. ciphertext byte dikemas ke representasi gambar
+3. ciphertext byte dikemas ke representasi gambar bersama header mode
 4. hasil dikirim sebagai `data URL` PNG
 
 Pada dekripsi:
 
 1. PNG terenkripsi didekode
-2. ciphertext byte diekstrak dari format gambar
-3. pipeline dekripsi dijalankan
-4. byte hasil dikembalikan lagi menjadi PNG biasa
+2. magic header dibaca untuk mendeteksi mode blok
+3. mode dari file harus cocok dengan `blockMode` request
+4. ciphertext byte diekstrak dari format gambar
+5. pipeline dekripsi dijalankan
+6. byte hasil dikembalikan lagi menjadi PNG biasa
 
 ## 9. Alur Enkripsi Lengkap
 
@@ -245,8 +300,10 @@ Untuk payload teks:
 5. jika perlu, tambahkan 1 byte agar panjang genap
 6. enkripsi dengan Playfair 16 x 16
 7. transposisi dengan Rail Fence
-8. enkripsi dengan DES-CBC + PKCS#7
-9. serialisasi ke format `MAGI2.<hex>`
+8. enkripsi dengan DES sesuai `blockMode` (`CBC` atau `ECB`) + `PKCS#7`
+9. serialisasi ke:
+   - `MAGI2.<hex>` untuk `CBC`
+   - `MAGI2E.<hex>` untuk `ECB`
 
 Untuk payload gambar:
 
@@ -254,7 +311,9 @@ Untuk payload gambar:
 2. turunkan parameter yang sama
 3. decode gambar ke RGBA bytes
 4. jalankan pipeline byte yang sama seperti mode teks
-5. kemas ciphertext ke PNG
+5. kemas ciphertext ke PNG dengan header:
+   - `MGI2` untuk `CBC`
+   - `MGE2` untuk `ECB`
 
 ## 10. Alur Dekripsi Lengkap
 
@@ -262,42 +321,65 @@ Untuk payload teks:
 
 1. validasi master key
 2. turunkan parameter yang sama dari master key
-3. validasi marker `MAGI2.`
-4. ubah hex ciphertext ke byte
-5. dekripsi DES-CBC
-6. balikkan Rail Fence
-7. balikkan Playfair
-8. baca header panjang
-9. ambil kembali payload asli sesuai panjang header
-10. decode byte ke UTF-8
+3. validasi marker `MAGI2.` atau `MAGI2E.`
+4. pastikan marker cocok dengan `blockMode`
+5. ubah hex ciphertext ke byte
+6. dekripsi DES sesuai mode aktif
+7. balikkan Rail Fence
+8. balikkan Playfair
+9. baca header panjang
+10. ambil kembali payload asli sesuai panjang header
+11. decode byte ke UTF-8
 
 Untuk payload gambar:
 
 1. validasi master key
 2. turunkan parameter yang sama
 3. decode PNG terenkripsi
-4. ekstrak ciphertext byte
-5. dekripsi dengan pipeline terbalik
-6. kembalikan hasil ke PNG biasa
+4. baca header `MGI2` atau `MGE2`
+5. pastikan header cocok dengan `blockMode`
+6. ekstrak ciphertext byte
+7. dekripsi dengan pipeline terbalik
+8. kembalikan hasil ke PNG biasa
 
-## 11. Sifat Sistem
+## 11. Validasi Mode
+
+Sistem sekarang memiliki validasi tambahan agar user tidak salah memilih mode
+saat decrypt:
+
+- jika ciphertext teks diawali `MAGI2E.` tetapi user memilih `CBC`, request
+  ditolak
+- jika ciphertext teks diawali `MAGI2.` tetapi user memilih `ECB`, request
+  ditolak
+- jika file gambar memakai header `MGE2` tetapi user memilih `CBC`, request
+  ditolak
+- jika file gambar memakai header `MGI2` tetapi user memilih `ECB`, request
+  ditolak
+
+Tujuannya adalah mencegah dekripsi dengan konfigurasi blok yang salah.
+
+## 12. Sifat Sistem
 
 Beberapa sifat penting dari rancangan ini:
 
-- deterministik terhadap master key, karena seluruh parameter diturunkan dari
-  key yang sama
+- deterministik terhadap master key, karena seluruh parameter inti diturunkan
+  dari key yang sama
 - menggunakan kombinasi substitusi, transposisi, dan block cipher
 - memakai domain byte penuh pada lapisan Playfair, sehingga dapat menangani
   data biner
 - mendukung payload teks dan gambar karena pipeline inti bekerja pada byte
+- mendukung dua mode blok DES, yaitu `CBC` dan `ECB`
 
-## 12. Ringkasan Singkat
+## 13. Ringkasan Singkat
 
 Inti desain kriptografi sistem ini adalah:
 
-- satu master key menghasilkan semua parameter
+- satu master key menghasilkan parameter Playfair, Rail Fence, DES key, dan IV
 - payload dibungkus dengan header panjang
 - payload diproses oleh Playfair byte-based
 - hasilnya ditransposisikan dengan Rail Fence
-- hasil akhirnya dienkripsi dengan DES-CBC
+- hasil akhirnya dienkripsi dengan DES menggunakan mode `CBC` atau `ECB`
+- format output dibedakan oleh marker:
+  - `MAGI2` dan `MGI2` untuk `CBC`
+  - `MAGI2E` dan `MGE2` untuk `ECB`
 - dekripsi membalik seluruh langkah tersebut dalam urutan terbalik
