@@ -1,13 +1,18 @@
 import jpeg from "jpeg-js";
 import { PNG } from "pngjs";
 
+import type { BlockMode } from "@/lib/magi/engine";
+
 export type DecodedImage = {
   width: number;
   height: number;
   rgba: Uint8Array;
 };
 
-const MAGIC = new Uint8Array([0x4d, 0x47, 0x49, 0x32]);
+const MAGIC_BY_MODE: Record<BlockMode, Uint8Array> = {
+  cbc: new Uint8Array([0x4d, 0x47, 0x49, 0x32]),
+  ecb: new Uint8Array([0x4d, 0x47, 0x45, 0x32]),
+};
 const HEADER_BYTES = 12;
 const MAX_SOURCE_IMAGE_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_WIDTH = 512;
@@ -57,9 +62,9 @@ export function encodePngDataUrl(image: DecodedImage) {
   };
 }
 
-export function packEncryptedImage(cipherBytes: Uint8Array, width: number, height: number) {
+export function packEncryptedImage(cipherBytes: Uint8Array, width: number, height: number, blockMode: BlockMode) {
   const payload = new Uint8Array(HEADER_BYTES + cipherBytes.length);
-  payload.set(MAGIC, 0);
+  payload.set(MAGIC_BY_MODE[blockMode], 0);
   const view = new DataView(payload.buffer);
   view.setUint16(4, width);
   view.setUint16(6, height);
@@ -81,8 +86,9 @@ export function packEncryptedImage(cipherBytes: Uint8Array, width: number, heigh
 
 export function unpackEncryptedImage(image: DecodedImage) {
   const bytes = image.rgba;
-  if (!matchesMagic(bytes)) {
-    throw new Error("File decrypt harus PNG hasil encrypt MAGI. Header MGI2 tidak ditemukan.");
+  const blockMode = detectBlockMode(bytes);
+  if (!blockMode) {
+    throw new Error("File decrypt harus PNG hasil encrypt MAGI. Header MGI2/MGE2 tidak ditemukan.");
   }
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -98,12 +104,19 @@ export function unpackEncryptedImage(image: DecodedImage) {
   return {
     width: originalWidth,
     height: originalHeight,
+    blockMode,
     cipherBytes: bytes.slice(HEADER_BYTES, end),
   };
 }
 
-function matchesMagic(bytes: Uint8Array) {
-  return MAGIC.every((value, index) => bytes[index] === value);
+function detectBlockMode(bytes: Uint8Array): BlockMode | null {
+  for (const [blockMode, magic] of Object.entries(MAGIC_BY_MODE) as [BlockMode, Uint8Array][]) {
+    if (magic.every((value, index) => bytes[index] === value)) {
+      return blockMode;
+    }
+  }
+
+  return null;
 }
 
 function validateDecodedImage(image: DecodedImage) {

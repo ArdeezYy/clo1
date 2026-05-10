@@ -1,10 +1,18 @@
-import { desDecryptCbc, desEncryptCbc } from "@/lib/magi/des";
+import {
+  desDecryptCbc,
+  desDecryptEcb,
+  desEncryptCbc,
+  desEncryptEcb,
+} from "@/lib/magi/des";
+
+export type BlockMode = "cbc" | "ecb";
 
 export type MagiParams = {
   playfairKey: string;
   railFenceDepth: number;
   desKeyHex: string;
   ivHex: string;
+  blockMode: BlockMode;
 };
 
 const HEADER_SIZE = 4;
@@ -17,12 +25,21 @@ export function encryptPayload(input: Uint8Array, params: MagiParams) {
   const playfairReady = ensureEvenLength(prepared);
   const playfair = playfairTransform(playfairReady, params.playfairKey, "encrypt");
   const railFence = railFenceEncrypt(playfair, params.railFenceDepth);
-  return desEncryptCbc(railFence, hexToBytes(params.desKeyHex), hexToBytes(params.ivHex));
+  const keyBytes = hexToBytes(params.desKeyHex);
+  const ivBytes = hexToBytes(params.ivHex);
+  return params.blockMode === "ecb"
+    ? desEncryptEcb(railFence, keyBytes)
+    : desEncryptCbc(railFence, keyBytes, ivBytes);
 }
 
 export function decryptPayload(input: Uint8Array, params: MagiParams) {
   validateParams(params);
-  const des = desDecryptCbc(input, hexToBytes(params.desKeyHex), hexToBytes(params.ivHex));
+  const keyBytes = hexToBytes(params.desKeyHex);
+  const ivBytes = hexToBytes(params.ivHex);
+  const des =
+    params.blockMode === "ecb"
+      ? desDecryptEcb(input, keyBytes)
+      : desDecryptCbc(input, keyBytes, ivBytes);
   const railFence = railFenceDecrypt(des, params.railFenceDepth);
   const playfair = playfairTransform(railFence, params.playfairKey, "decrypt");
   return stripLengthHeader(playfair);
@@ -78,6 +95,10 @@ export function validateParams(params: MagiParams) {
 
   if (!Number.isInteger(params.railFenceDepth) || params.railFenceDepth < 2) {
     throw new Error("Rail Fence depth minimal 2.");
+  }
+
+  if (params.blockMode !== "cbc" && params.blockMode !== "ecb") {
+    throw new Error("Mode blok harus ECB atau CBC.");
   }
 
   hexToBytes(params.desKeyHex);

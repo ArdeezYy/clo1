@@ -133,6 +133,20 @@ export function desEncryptCbc(data: Uint8Array, keyBytes: Uint8Array, ivBytes: U
   return output;
 }
 
+export function desEncryptEcb(data: Uint8Array, keyBytes: Uint8Array) {
+  const roundKeys = createRoundKeys(keyBytes);
+  const padded = pkcs7Pad(data, 8);
+  const output = new Uint8Array(padded.length);
+
+  for (let offset = 0; offset < padded.length; offset += 8) {
+    const block = bytesToBigInt(padded.subarray(offset, offset + 8));
+    const encrypted = desEncryptBlock(block, roundKeys);
+    output.set(bigIntToBytes(encrypted, 8), offset);
+  }
+
+  return output;
+}
+
 export function desDecryptCbc(data: Uint8Array, keyBytes: Uint8Array, ivBytes: Uint8Array) {
   if (data.length === 0 || data.length % 8 !== 0) {
     throw new Error("Ciphertext DES-CBC harus kelipatan 8 byte.");
@@ -147,6 +161,23 @@ export function desDecryptCbc(data: Uint8Array, keyBytes: Uint8Array, ivBytes: U
     const decrypted = desDecryptBlock(current, roundKeys) ^ previous;
     output.set(bigIntToBytes(decrypted, 8), offset);
     previous = current;
+  }
+
+  return pkcs7Unpad(output, 8);
+}
+
+export function desDecryptEcb(data: Uint8Array, keyBytes: Uint8Array) {
+  if (data.length === 0 || data.length % 8 !== 0) {
+    throw new Error("Ciphertext DES-ECB harus kelipatan 8 byte.");
+  }
+
+  const roundKeys = createRoundKeys(keyBytes);
+  const output = new Uint8Array(data.length);
+
+  for (let offset = 0; offset < data.length; offset += 8) {
+    const current = bytesToBigInt(data.subarray(offset, offset + 8));
+    const decrypted = desDecryptBlock(current, roundKeys);
+    output.set(bigIntToBytes(decrypted, 8), offset);
   }
 
   return pkcs7Unpad(output, 8);

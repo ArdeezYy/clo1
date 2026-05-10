@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { encryptPayload, utf8ToBytes, type MagiParams } from "@/lib/magi/engine";
+import { encryptPayload, utf8ToBytes, type BlockMode, type MagiParams } from "@/lib/magi/engine";
 import { decodeImageBase64, encodePngDataUrl, packEncryptedImage } from "@/lib/magi/image-codec";
 import { deriveParamsFromMasterKey, encodeVersionedCiphertext, validateMasterKey } from "@/lib/magi/master-key";
 
@@ -27,11 +27,12 @@ export async function POST(request: Request) {
 
       return noStoreJson({
         outputType: "text",
-        result: encodeVersionedCiphertext(encrypted),
-        encoding: "magi2-hex",
+        result: encodeVersionedCiphertext(encrypted, params.blockMode),
+        encoding: `magi2-${params.blockMode}-hex`,
         metadata: {
           inputType: "text",
-          version: "MAGI2",
+          blockMode: params.blockMode.toUpperCase(),
+          version: params.blockMode === "ecb" ? "MAGI2E" : "MAGI2",
           bytes: encrypted.length,
         },
       });
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
 
       const decoded = decodeImageBase64(body.image.data, body.image.mimeType);
       const encrypted = encryptPayload(decoded.rgba, params);
-      const packed = packEncryptedImage(encrypted, decoded.width, decoded.height);
+      const packed = packEncryptedImage(encrypted, decoded.width, decoded.height, params.blockMode);
       const encoded = encodePngDataUrl(packed);
 
       return noStoreJson({
@@ -57,7 +58,8 @@ export async function POST(request: Request) {
         dataUrl: encoded.dataUrl,
         metadata: {
           inputType: "image",
-          version: "MGI2",
+          blockMode: params.blockMode.toUpperCase(),
+          version: params.blockMode === "ecb" ? "MGE2" : "MGI2",
           originalWidth: decoded.width,
           originalHeight: decoded.height,
           packedWidth: packed.width,
@@ -85,7 +87,19 @@ function parseParams(body: unknown): MagiParams {
   const candidate = body as Record<string, unknown>;
   const masterKey = String(candidate.masterKey ?? "");
   validateMasterKey(masterKey);
-  return deriveParamsFromMasterKey(masterKey);
+  const blockMode = parseBlockMode(candidate.blockMode);
+  return {
+    ...deriveParamsFromMasterKey(masterKey),
+    blockMode,
+  };
+}
+
+function parseBlockMode(value: unknown): BlockMode {
+  if (value === "ecb" || value === "cbc") {
+    return value;
+  }
+
+  return "cbc";
 }
 
 function noStoreJson(data: unknown, init?: ResponseInit) {

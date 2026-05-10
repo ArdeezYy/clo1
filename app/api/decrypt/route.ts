@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   bytesToUtf8,
   decryptPayload,
+  type BlockMode,
   type MagiParams,
 } from "@/lib/magi/engine";
 import { decodeImageBase64, encodePngDataUrl, unpackEncryptedImage } from "@/lib/magi/image-codec";
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
         throw new Error("Ciphertext terlalu panjang.");
       }
 
-      const decrypted = decryptPayload(decodeVersionedCiphertext(body.text), params);
+      const decrypted = decryptPayload(decodeVersionedCiphertext(body.text, params.blockMode), params);
 
       return noStoreJson({
         outputType: "text",
@@ -34,7 +35,8 @@ export async function POST(request: Request) {
         encoding: "utf8",
         metadata: {
           inputType: "text",
-          version: "MAGI2",
+          blockMode: params.blockMode.toUpperCase(),
+          version: params.blockMode === "ecb" ? "MAGI2E" : "MAGI2",
           bytes: decrypted.length,
         },
       });
@@ -51,6 +53,13 @@ export async function POST(request: Request) {
 
       const decoded = decodeImageBase64(body.image.data, body.image.mimeType);
       const packed = unpackEncryptedImage(decoded);
+      if (packed.blockMode !== params.blockMode) {
+        throw new Error(
+          packed.blockMode === "ecb"
+            ? "File gambar ini memakai header MGE2. Pilih mode ECB untuk decrypt."
+            : "File gambar ini memakai header MGI2. Pilih mode CBC untuk decrypt.",
+        );
+      }
       const decrypted = decryptPayload(packed.cipherBytes, params);
       const encoded = encodePngDataUrl({
         width: packed.width,
@@ -64,7 +73,8 @@ export async function POST(request: Request) {
         dataUrl: encoded.dataUrl,
         metadata: {
           inputType: "image",
-          version: "MGI2",
+          blockMode: params.blockMode.toUpperCase(),
+          version: params.blockMode === "ecb" ? "MGE2" : "MGI2",
           width: packed.width,
           height: packed.height,
         },
@@ -90,7 +100,19 @@ function parseParams(body: unknown): MagiParams {
   const candidate = body as Record<string, unknown>;
   const masterKey = String(candidate.masterKey ?? "");
   validateMasterKey(masterKey);
-  return deriveParamsFromMasterKey(masterKey);
+  const blockMode = parseBlockMode(candidate.blockMode);
+  return {
+    ...deriveParamsFromMasterKey(masterKey),
+    blockMode,
+  };
+}
+
+function parseBlockMode(value: unknown): BlockMode {
+  if (value === "ecb" || value === "cbc") {
+    return value;
+  }
+
+  return "cbc";
 }
 
 function noStoreJson(data: unknown, init?: ResponseInit) {

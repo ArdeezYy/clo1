@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 type OperationMode = "encrypt" | "decrypt";
 type InputMode = "text" | "image";
+type BlockMode = "cbc" | "ecb";
 
 type PreparedImage = {
   file: File;
@@ -46,32 +47,39 @@ type ExecutionResult = {
 
 type FormErrors = Partial<Record<"masterKey" | "textInput" | "image", string>>;
 
-const modeLabels: Record<OperationMode, { title: string; subtitle: string }> = {
-  encrypt: {
-    title: "Encryption Sequence",
-    subtitle: "Master key -> Playfair -> Rail Fence -> DES-CBC",
-  },
-  decrypt: {
-    title: "Decryption Sequence",
-    subtitle: "DES-CBC -> Rail Fence -> Playfair <- Master key",
-  },
-};
+function getModeLabel(mode: OperationMode, blockMode: BlockMode) {
+  const desLabel = `DES-${blockMode.toUpperCase()}`;
+  return mode === "encrypt"
+    ? {
+        title: "Encryption Sequence",
+        subtitle: `Master key -> Playfair -> Rail Fence -> ${desLabel}`,
+      }
+    : {
+        title: "Decryption Sequence",
+        subtitle: `${desLabel} -> Rail Fence -> Playfair <- Master key`,
+      };
+}
 
-const quickStats = [
-  { label: "Pipeline", value: "3 Layer", icon: ShieldCheck },
-  { label: "Master Key", value: "Unified", icon: KeyRound },
-  { label: "Image Limit", value: "128 x 128", icon: ImageIcon },
-];
+function getQuickStats(blockMode: BlockMode) {
+  return [
+    { label: "Pipeline", value: "3 Layer", icon: ShieldCheck },
+    { label: "Block Mode", value: blockMode.toUpperCase(), icon: ArrowRightLeft },
+    { label: "Image Limit", value: "128 x 128", icon: ImageIcon },
+  ];
+}
 
-const pipelineStages = [
-  { title: "Melchior", subtitle: "Playfair byte substitution engaged" },
-  { title: "Balthasar", subtitle: "Rail Fence transposition in progress" },
-  { title: "Casper", subtitle: "DES-CBC block engine engaged" },
-];
+function getPipelineStages(blockMode: BlockMode) {
+  return [
+    { title: "Melchior", subtitle: "Playfair byte substitution engaged" },
+    { title: "Balthasar", subtitle: "Rail Fence transposition in progress" },
+    { title: "Casper", subtitle: `DES-${blockMode.toUpperCase()} block engine engaged` },
+  ];
+}
 
 export function MagiWorkbench() {
   const [mode, setMode] = useState<OperationMode>("encrypt");
   const [inputMode, setInputMode] = useState<InputMode>("text");
+  const [blockMode, setBlockMode] = useState<BlockMode>("cbc");
   const [masterKey, setMasterKey] = useState("");
   const [showMasterKey, setShowMasterKey] = useState(false);
   const [textInput, setTextInput] = useState("");
@@ -86,6 +94,9 @@ export function MagiWorkbench() {
   const [serverStatus, setServerStatus] = useState<"checking" | "online" | "offline">("checking");
   const [serverLatency, setServerLatency] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const modeLabel = getModeLabel(mode, blockMode);
+  const quickStats = getQuickStats(blockMode);
+  const pipelineStages = getPipelineStages(blockMode);
 
   const formErrors = useMemo(
     () =>
@@ -145,7 +156,7 @@ export function MagiWorkbench() {
     setPreparedAt("Belum ada payload");
     setResult(null);
     setSubmitAttempted(false);
-  }, [mode]);
+  }, [mode, blockMode]);
 
   async function handleFileSelect(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -212,6 +223,7 @@ export function MagiWorkbench() {
     try {
       const requestPromise = executeMagiRequest({
         mode,
+        blockMode,
         inputMode,
         masterKey,
         textInput,
@@ -327,7 +339,33 @@ export function MagiWorkbench() {
                         {value}
                       </div>
                       <div className="mt-1 text-xs text-zinc-500">
-                        {modeLabels[value].subtitle}
+                        {getModeLabel(value, blockMode).subtitle}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <FieldLabel title="Block Cipher Mode" subtitle="Pilih mode DES yang dipakai pada layer terakhir." />
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {(["cbc", "ecb"] as BlockMode[]).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setBlockMode(value)}
+                      className={cn(
+                        "rounded-2xl border px-4 py-3 text-left transition",
+                        blockMode === value
+                          ? "border-white/30 bg-white/10 text-white shadow-[0_0_24px_rgba(255,255,255,0.07)]"
+                          : "border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/20 hover:bg-white/[0.06]",
+                      )}
+                    >
+                      <div className="font-[family-name:var(--font-display)] text-sm uppercase tracking-[0.18em]">
+                        DES-{value.toUpperCase()}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {value === "cbc" ? "Chaining dengan IV." : "Blok diproses mandiri tanpa chaining."}
                       </div>
                     </button>
                   ))}
@@ -368,7 +406,7 @@ export function MagiWorkbench() {
                     Workspace
                   </p>
                   <h2 className="mt-2 font-[family-name:var(--font-display)] text-3xl text-white">
-                    {modeLabels[mode].title}
+                    {modeLabel.title}
                   </h2>
                 </div>
 
@@ -396,7 +434,13 @@ export function MagiWorkbench() {
                   <div className="space-y-3">
                     <FieldLabel
                       title="Plaintext / Ciphertext"
-                      subtitle={mode === "encrypt" ? "Message payload." : "Ciphertext with MAGI2 marker."}
+                      subtitle={
+                        mode === "encrypt"
+                          ? "Message payload."
+                          : blockMode === "ecb"
+                            ? "Ciphertext with MAGI2E marker."
+                            : "Ciphertext with MAGI2 marker."
+                      }
                     />
                     <textarea
                       value={textInput}
@@ -404,7 +448,9 @@ export function MagiWorkbench() {
                       placeholder={
                         mode === "encrypt"
                           ? "Masukkan pesan, NIM, atau data uji untuk diproses oleh pipeline MAGI."
-                          : "Tempel ciphertext MAGI2 hasil encrypt di sini."
+                          : blockMode === "ecb"
+                            ? "Tempel ciphertext MAGI2E hasil encrypt di sini."
+                            : "Tempel ciphertext MAGI2 hasil encrypt di sini."
                       }
                       className={cn(
                         "terminal-input min-h-[320px] w-full rounded-[28px] border bg-zinc-950/95 px-5 py-5 text-sm leading-7 text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-white/40",
@@ -416,7 +462,9 @@ export function MagiWorkbench() {
                       hint={
                         mode === "encrypt"
                           ? "Teks dikirim sebagai plaintext string."
-                          : "Decrypt membaca header versi MAGI2 sebelum membuka payload."
+                          : blockMode === "ecb"
+                            ? "Decrypt membaca marker MAGI2E sebelum membuka payload ECB."
+                            : "Decrypt membaca marker MAGI2 sebelum membuka payload CBC."
                       }
                     />
                   </div>
@@ -424,7 +472,13 @@ export function MagiWorkbench() {
                   <div className="space-y-4">
                     <FieldLabel
                       title="Image Dropzone"
-                      subtitle={mode === "encrypt" ? "PNG or JPG asset." : "MAGI encrypted PNG (MGI2)."}
+                      subtitle={
+                        mode === "encrypt"
+                          ? "PNG or JPG asset."
+                          : blockMode === "ecb"
+                            ? "MAGI encrypted PNG (MGE2)."
+                            : "MAGI encrypted PNG (MGI2)."
+                      }
                     />
                     <button
                       type="button"
@@ -466,8 +520,8 @@ export function MagiWorkbench() {
                           </p>
                           <p className="mt-3 max-w-xl text-sm leading-7 text-zinc-500">
                             {mode === "encrypt"
-                              ? "Master key will drive the full legacy MAGI chain."
-                              : "Use the PNG downloaded from encrypt output."}
+                              ? `Master key will drive Playfair, Rail Fence, and DES-${blockMode.toUpperCase()}.`
+                              : "Use the PNG downloaded from encrypt output with the same block mode."}
                           </p>
                         </>
                       )}
@@ -634,6 +688,7 @@ export function MagiWorkbench() {
       {isExecuting ? (
         <PipelineOverlay
           mode={mode}
+          blockMode={blockMode}
           pipelineIndex={pipelineIndex}
           progress={((pipelineIndex + 1) / pipelineStages.length) * 100}
         />
@@ -711,13 +766,17 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 function PipelineOverlay({
   mode,
+  blockMode,
   pipelineIndex,
   progress,
 }: {
   mode: OperationMode;
+  blockMode: BlockMode;
   pipelineIndex: number;
   progress: number;
 }) {
+  const pipelineStages = getPipelineStages(blockMode);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/78 px-4 backdrop-blur-md">
       <div className="w-full max-w-3xl rounded-[32px] border border-white/12 bg-black/92 p-6 shadow-[0_0_90px_rgba(255,255,255,0.06)] sm:p-8">
@@ -811,12 +870,14 @@ function getFormErrors({
 
 async function executeMagiRequest({
   mode,
+  blockMode,
   inputMode,
   masterKey,
   textInput,
   preparedImage,
 }: {
   mode: OperationMode;
+  blockMode: BlockMode;
   inputMode: InputMode;
   masterKey: string;
   textInput: string;
@@ -824,6 +885,7 @@ async function executeMagiRequest({
 }): Promise<ExecutionResult> {
   const endpoint = `/api/${mode}`;
   const payload = await buildMagiPayload({
+    blockMode,
     inputMode,
     masterKey,
     textInput,
@@ -853,18 +915,19 @@ async function executeMagiRequest({
   }
 
   if (data.outputType === "image") {
+    const imageVersion = blockMode === "ecb" ? "MGE2" : "MGI2";
     return {
       outputType: "image",
       endpoint,
-      title: mode === "encrypt" ? "MGI2 PNG Container" : "Restored Image Output",
+      title: mode === "encrypt" ? `${imageVersion} PNG Container` : "Restored Image Output",
       summary:
         mode === "encrypt"
-          ? "Master key diturunkan ke parameter internal MAGI lalu dibungkus ke container PNG."
-          : "Container MGI2 berhasil dibuka dan dipulihkan ke dimensi aslinya.",
+          ? `Master key diturunkan ke parameter internal MAGI lalu dibungkus ke container PNG ${imageVersion}.`
+          : `Container ${imageVersion} berhasil dibuka dan dipulihkan ke dimensi aslinya.`,
       output:
         mode === "encrypt"
-          ? "Image payload packed into a valid MGI2 PNG container."
-          : "Image payload restored from the encrypted MGI2 container.",
+          ? `Image payload packed into a valid ${imageVersion} PNG container.`
+          : `Image payload restored from the encrypted ${imageVersion} container.`,
       metadata: data.metadata ?? {},
       imageDataUrl: data.dataUrl,
       imageMimeType: "image/png",
@@ -874,22 +937,24 @@ async function executeMagiRequest({
   return {
     outputType: "text",
     endpoint,
-    title: mode === "encrypt" ? "MAGI2 Ciphertext" : "Plaintext Output",
+    title: mode === "encrypt" ? (blockMode === "ecb" ? "MAGI2E Ciphertext" : "MAGI2 Ciphertext") : "Plaintext Output",
     summary:
       mode === "encrypt"
-        ? "Master key diekspansi secara deterministik lalu diteruskan ke tiga layer legacy MAGI."
-        : "Ciphertext MAGI2 berhasil dibuka dengan master key yang sama.",
+        ? `Master key diekspansi secara deterministik lalu diteruskan ke tiga layer MAGI dengan DES-${blockMode.toUpperCase()}.`
+        : `Ciphertext ${blockMode === "ecb" ? "MAGI2E" : "MAGI2"} berhasil dibuka dengan master key yang sama.`,
     output: data.result ?? "",
     metadata: data.metadata ?? {},
   };
 }
 
 async function buildMagiPayload({
+  blockMode,
   inputMode,
   masterKey,
   textInput,
   preparedImage,
 }: {
+  blockMode: BlockMode;
   inputMode: InputMode;
   masterKey: string;
   textInput: string;
@@ -898,6 +963,7 @@ async function buildMagiPayload({
   if (inputMode === "text") {
     return {
       inputType: "text",
+      blockMode,
       masterKey,
       text: textInput,
     };
@@ -914,6 +980,7 @@ async function buildMagiPayload({
 
   return {
     inputType: "image",
+    blockMode,
     masterKey,
     image: {
       data: await fileToBase64(preparedImage.file),

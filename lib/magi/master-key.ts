@@ -1,10 +1,13 @@
-import type { MagiParams } from "@/lib/magi/engine";
+import type { BlockMode, MagiParams } from "@/lib/magi/engine";
 import { sha256 } from "@/lib/magi/sha256";
 
 const encoder = new TextEncoder();
 const PLAYFAIR_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
 const PLAYFAIR_KEY_LENGTH = 24;
-const TEXT_MARKER = "MAGI2.";
+const TEXT_MARKERS: Record<BlockMode, string> = {
+  cbc: "MAGI2.",
+  ecb: "MAGI2E.",
+};
 const MIN_MASTER_KEY_LENGTH = 16;
 const MAX_MASTER_KEY_LENGTH = 128;
 
@@ -21,6 +24,7 @@ export function deriveParamsFromMasterKey(masterKey: string): MagiParams {
     railFenceDepth: (railSeed[0] % 7) + 2,
     desKeyHex: bytesToHex(desKeySeed),
     ivHex: bytesToHex(ivSeed),
+    blockMode: "cbc",
   };
 }
 
@@ -40,19 +44,34 @@ export function validateMasterKey(masterKey: string) {
   }
 }
 
-export function encodeVersionedCiphertext(cipherBytes: Uint8Array) {
-  return `${TEXT_MARKER}${bytesToHex(cipherBytes)}`;
+export function encodeVersionedCiphertext(cipherBytes: Uint8Array, blockMode: BlockMode) {
+  return `${TEXT_MARKERS[blockMode]}${bytesToHex(cipherBytes)}`;
 }
 
-export function decodeVersionedCiphertext(value: string) {
+export function decodeVersionedCiphertext(value: string, expectedMode: BlockMode) {
   const normalized = value.trim();
-  if (!normalized.startsWith(TEXT_MARKER)) {
-    throw new Error("Ciphertext harus memakai marker MAGI2.");
+  const marker =
+    normalized.startsWith(TEXT_MARKERS.ecb)
+      ? TEXT_MARKERS.ecb
+      : normalized.startsWith(TEXT_MARKERS.cbc)
+        ? TEXT_MARKERS.cbc
+        : "";
+
+  if (!marker) {
+    throw new Error("Ciphertext harus memakai marker MAGI2. atau MAGI2E.");
   }
 
-  const hex = normalized.slice(TEXT_MARKER.length);
+  if (marker !== TEXT_MARKERS[expectedMode]) {
+    throw new Error(
+      expectedMode === "cbc"
+        ? "Ciphertext ini memakai marker MAGI2E. Pilih mode ECB untuk decrypt."
+        : "Ciphertext ini memakai marker MAGI2. Pilih mode CBC untuk decrypt.",
+    );
+  }
+
+  const hex = normalized.slice(marker.length);
   if (!/^[0-9A-Fa-f]+$/.test(hex) || hex.length === 0 || hex.length % 2 !== 0) {
-    throw new Error("Ciphertext MAGI2 tidak valid.");
+    throw new Error(`Ciphertext ${marker.slice(0, -1)} tidak valid.`);
   }
 
   return hexToBytes(hex);
